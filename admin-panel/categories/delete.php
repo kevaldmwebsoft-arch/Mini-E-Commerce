@@ -1,20 +1,26 @@
 <?php
-require_once '../../config/Database.php';
-$db = (new Database())->connect();
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../models/Category.php';
+require_once __DIR__ . '/../includes/auth.php';
 
-$id = $_GET['id'];
+require_login();
 
-// image delete
-$stmt = $db->prepare("SELECT image FROM categories WHERE id=?");
-$stmt->execute([$id]);
-$img = $stmt->fetchColumn();
-
-if ($img) {
-    unlink("../../uploads/" . $img);
+if (!isset($_GET['id'])) {
+    set_flash('error', 'Category not found.');
+    header("Location: index.php");
+    exit;
 }
 
-$stmt = $db->prepare("DELETE FROM categories WHERE id=?");
-$stmt->execute([$id]);
+$id = intval($_GET['id']);
+$db = (new Database())->connect();
+$categoryMdl = new Category($db);
+
+if ($categoryMdl->delete($id)) {
+    set_flash('success', 'Category deleted successfully!');
+} else {
+    set_flash('error', 'Failed to delete category.');
+}
 
 header("Location: index.php");
+exit;
 ?>

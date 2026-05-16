@@ -1,53 +1,191 @@
 <?php
-require_once '../../config/Database.php';
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../models/Category.php';
+require_once __DIR__ . '/../includes/auth.php';
+
+require_login();
+
 $db = (new Database())->connect();
+$categoryMdl = new Category($db);
 
-$id = $_GET['id'];
+$errors = [];
+$category = null;
 
-$stmt = $db->prepare("SELECT * FROM categories WHERE id=?");
-$stmt->execute([$id]);
-$row = $stmt->fetch(PDO::FETCH_ASSOC);
+if (!isset($_GET['id'])) {
+    set_flash('error', 'Category not found.');
+    header("Location: index.php");
+    exit;
+}
 
-if (isset($_POST['update'])) {
+$id = intval($_GET['id']);
+$category = $categoryMdl->getById($id);
 
-    $name = $_POST['name'];
-    $slug = $_POST['slug'];
-    $description = $_POST['description'];
-    $status = $_POST['status'];
+if (!$category) {
+    set_flash('error', 'Category not found.');
+    header("Location: index.php");
+    exit;
+}
 
-    $image = $row['image'];
+$name        = $category['name'];
+$description = $category['description'] ?? '';
+$status      = $category['status'] ?? 'active';
+$existing_image = $category['image'] ?? '';
 
-    if (!empty($_FILES['image']['name'])) {
-        $image = time() . "_" . $_FILES['image']['name'];
-        move_uploaded_file($_FILES['image']['tmp_name'], "../../uploads/" . $image);
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_category'])) {
+    $name        = trim($_POST['name'] ?? '');
+    $description = trim($_POST['description'] ?? '');
+    $status      = trim($_POST['status'] ?? 'active');
+    $image       = $existing_image;
+
+    // Validation
+    if (empty($name)) {
+        $errors['name'] = 'Category name is required.';
+    } elseif (strlen($name) < 2) {
+        $errors['name'] = 'Name must be at least 2 characters.';
+    } elseif (strlen($name) > 50) {
+        $errors['name'] = 'Name must not exceed 50 characters.';
     }
 
-    $stmt = $db->prepare("UPDATE categories 
-                          SET name=?, slug=?, description=?, image=?, status=? 
-                          WHERE id=?");
+    if (strlen($description) > 500) {
+        $errors['description'] = 'Description must not exceed 500 characters.';
+    }
 
-    $stmt->execute([$name, $slug, $description, $image, $status, $id]);
+    if (!in_array($status, ['active', 'inactive'])) {
+        $errors['status'] = 'Invalid status selected.';
+    }
 
-    header("Location: index.php");
+    // Handle image upload
+    if (isset($_FILES['image']) && $_FILES['image']['error'] === 0) {
+        $allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        $max_size = 2 * 1024 * 1024; // 2MB
+
+        if (!in_array($_FILES['image']['type'], $allowed_types)) {
+            $errors['image'] = 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.';
+        } elseif ($_FILES['image']['size'] > $max_size) {
+            $errors['image'] = 'File size must not exceed 2MB.';
+        } else {
+            
+            // Delete old image if exists
+            if ($existing_image) {
+                $old_file = __DIR__ . '/../../uploads/' . $existing_image;
+                if (file_exists($old_file)) {
+                    unlink($old_file);
+                }
+            }
+
+            $upload_dir = __DIR__ . '/../../uploads/categories/';
+            if (!is_dir($upload_dir)) {
+                mkdir($upload_dir, 0755, true);
+            }
+
+            $file_ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
+            $file_name = uniqid() . '.' . $file_ext;
+            $file_path = $upload_dir . $file_name;
+
+            if (move_uploaded_file($_FILES['image']['tmp_name'], $file_path)) {
+                $image = 'categories/' . $file_name;
+            } else {
+                $errors['image'] = 'Failed to upload image.';
+            }
+        }
+    }
+
+    if (empty($errors)) {
+        if ($categoryMdl->update($id, $name, $description, $image, $status)) {
+            set_flash('success', "Category updated successfully!");
+            header("Location: index.php");
+            exit;
+        } else {
+            $errors['general'] = 'Failed to update category. Please try again.';
+        }
+    }
 }
 ?>
 
-<h2>Edit Category</h2>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Edit Category</title>
+    <link rel="stylesheet" href="../../assets/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="form-container">
+            <h1>Edit Category</h1>
 
-<form method="POST" enctype="multipart/form-data">
+            <?php if (!empty($errors['general'])): ?>
+                <div class="form-error">
+                    <?php echo htmlspecialchars($errors['general']); ?>
+                </div>
+            <?php endif; ?>
 
-    <input type="text" name="name" value="<?= $row['name'] ?>"><br><br>
-    <input type="text" name="slug" value="<?= $row['slug'] ?>"><br><br>
-    <textarea name="description"><?= $row['description'] ?></textarea><br><br>
+            <form method="POST" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label for="name">Category Name *</label>
+                    <input 
+                        type="text" 
+                        id="name" 
+                        name="name" 
+                        placeholder="Enter category name"
+                        value="<?php echo htmlspecialchars($name); ?>"
+                        required
+                    >
+                    <?php if (isset($errors['name'])): ?>
+                        <div class="error-message"><?php echo htmlspecialchars($errors['name']); ?></div>
+                    <?php endif; ?>
+                </div>
 
-    <img src="../../uploads/<?= $row['image'] ?>" width="80"><br><br>
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea 
+                        id="description" 
+                        name="description" 
+                        placeholder="Enter category description"
+                        rows="4"
+                    ><?php echo htmlspecialchars($description); ?></textarea>
+                    <?php if (isset($errors['description'])): ?>
+                        <div class="error-message"><?php echo htmlspecialchars($errors['description']); ?></div>
+                    <?php endif; ?>
+                </div>
 
-    <input type="file" name="image"><br><br>
+                <div class="form-group">
+                    <label for="image">Category Image</label>
+                    <?php if ($existing_image): ?>
+                        <div class="image-preview-wrapper">
+                            <img src="../../uploads/<?php echo htmlspecialchars($existing_image); ?>" alt="Category" class="image-thumbnail">
+                            <p class="current-image-text">Current image</p>
+                        </div>
+                    <?php endif; ?>
+                    <input 
+                        type="file" 
+                        id="image" 
+                        name="image" 
+                        accept="image/jpeg,image/png,image/gif,image/webp"
+                    >
+                    <small>Max file size: 2MB. Allowed formats: JPEG, PNG, GIF, WebP. Leave empty to keep existing image.</small>
+                    <?php if (isset($errors['image'])): ?>
+                        <div class="error-message"><?php echo htmlspecialchars($errors['image']); ?></div>
+                    <?php endif; ?>
+                </div>
 
-    <select name="status">
-        <option value="1" <?= $row['status']==1?'selected':'' ?>>Active</option>
-        <option value="0" <?= $row['status']==0?'selected':'' ?>>Inactive</option>
-    </select><br><br>
+                <div class="form-group">
+                    <label for="status">Status *</label>
+                    <select id="status" name="status" required>
+                        <option value="active" <?php echo $status === 'active' ? 'selected' : ''; ?>>Active</option>
+                        <option value="inactive" <?php echo $status === 'inactive' ? 'selected' : ''; ?>>Inactive</option>
+                    </select>
+                    <?php if (isset($errors['status'])): ?>
+                        <div class="error-message"><?php echo htmlspecialchars($errors['status']); ?></div>
+                    <?php endif; ?>
+                </div>
 
-    <button type="submit" name="update">Update</button>
-</form>
+                <div class="form-actions">
+                    <button type="submit" name="update_category" class="btn btn-primary">Update Category</button>
+                    <a href="index.php" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,44 +1,48 @@
 <?php
-require_once '../../config/Database.php';
-$db = (new Database())->connect();
+require_once __DIR__ . '/../../config/Database.php';
+require_once __DIR__ . '/../../models/Category.php';
+require_once __DIR__ . '/../includes/auth.php';
 
-$data = $db->query("SELECT * FROM categories ORDER BY id DESC")->fetchAll(PDO::FETCH_ASSOC);
+require_login();
+
+$db = (new Database())->connect();
+$categoryMdl = new Category($db);
+$categories = $categoryMdl->getAll();
+$totalCategories = count($categories);
+
+$flash = get_flash();
 ?>
 
-<h2>Admin Dashboard</h2>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Dashboard</title>
+    <link rel="stylesheet" href="../../assets/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="dashboard-header">
+            <h1>Admin Dashboard</h1>
+            <a href="../auth/logout.php" class="logout-btn">Logout</a>
+        </div>
 
-<a href="../categories/create.php">+ Create Category</a>
+        <?php if ($flash): ?>
+            <div class="alert alert-<?php echo $flash['type']; ?>">
+                <?php echo htmlspecialchars($flash['message']); ?>
+            </div>
+        <?php endif; ?>
 
-<br><br>
-<a href="../auth/logout.php" 
-   style="float:right; background:red; color:white; padding:8px 12px; text-decoration:none;">
-   Logout
-</a>
-
-<table border="1" cellpadding="10">
-    <tr>
-        <th>ID</th>
-        <th>Name</th>
-        <th>Slug</th>
-        <th>Image</th>
-        <th>Status</th>
-        <th>Action</th>
-    </tr>
-
-    <?php foreach ($data as $row): ?>
-    <tr>
-        <td><?= $row['id'] ?></td>
-        <td><?= $row['name'] ?></td>
-        <td><?= $row['slug'] ?></td>
-        <td>
-            <img src="../../uploads/<?= $row['image'] ?>" width="60">
-        </td>
-        <td><?= $row['status'] ?></td>
-        <td>
-            <a href="../categories/edit.php?id=<?= $row['id'] ?>">Edit</a> |
-            <a href="../categories/delete.php?id=<?= $row['id'] ?>" onclick="return confirm('Delete this?')">Delete</a>
-        </td>
-    </tr>
-    <?php endforeach; ?>
-
-</table>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Categories</h3>
+                <div class="stat-number"><?php echo $totalCategories; ?></div>
+                <div class="actions">
+                    <a href="../categories/index.php" class="btn btn-secondary">Manage</a>
+                    <a href="../categories/create.php" class="btn btn-primary">+ Create</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
